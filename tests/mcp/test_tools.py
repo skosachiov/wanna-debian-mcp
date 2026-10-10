@@ -31,9 +31,166 @@ def test_get_metadata_dir_default(monkeypatch):
     assert tools.get_metadata_dir() == os.path.abspath("./metadata")
 
 
+def test_get_workspace_dir_default_is_root(monkeypatch, tmp_path):
+    monkeypatch.setenv(tools.ENV_METADATA_DIR, str(tmp_path))
+    assert tools.get_workspace_dir() == tools.get_metadata_dir() == str(tmp_path.resolve())
+
+
+def test_get_workspace_dir_named_under_root(tmp_path):
+    root = str(tmp_path)
+    assert tools.get_workspace_dir("debian", root) == os.path.join(root, "debian")
+
+
+def test_get_workspace_dir_uses_env_root(monkeypatch, tmp_path):
+    monkeypatch.setenv(tools.ENV_METADATA_DIR, str(tmp_path))
+    assert tools.get_workspace_dir("debian") == os.path.join(str(tmp_path), "debian")
+
+
+def test_get_workspace_dir_absolute_workspace(tmp_path):
+    workspace = tmp_path / "elsewhere"
+    root = tmp_path / "root"
+    assert tools.get_workspace_dir(str(workspace), str(root)) == str(workspace)
+
+
 # ---------------------------------------------------------------------------
 # distro-metadata tools
 # ---------------------------------------------------------------------------
+
+def _noop_update(*args, **kwargs):
+    """Stand-in for the network pull; records nothing."""
+
+
+def test_init_metadata_writes_config_and_pulls(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_update(base, local_dir, dist, comp, build, session, hashes):
+        calls.append((base, local_dir, dist, comp, build))
+
+    monkeypatch.setattr(tools, "_update_metadata", fake_update)
+    result = tools.init_metadata(
+        "http://ftp.debian.org/debian/",
+        workspace="debian",
+        metadata_dir=str(tmp_path),
+        dist=["trixie"],
+        comp=["main"],
+        build=["binary-amd64"],
+    )
+
+    workspace = os.path.join(str(tmp_path), "debian")
+    assert result["metadata_dir"] == workspace
+    assert result["base_url"] == "http://ftp.debian.org/debian/"
+    assert result["workspace"] == "debian"
+    assert result["updated"] is True
+
+    with open(os.path.join(workspace, "config.json"), encoding="utf-8") as handle:
+        config = json.load(handle)
+    assert config["base_url"] == "http://ftp.debian.org/debian/"
+    assert config["local_dir"] == [workspace]
+    assert config["dist"] == ["trixie"]
+    assert config["comp"] == ["main"]
+    assert config["builds"] == ["binary-amd64"]
+
+    assert calls == [
+        (
+            "http://ftp.debian.org/debian/",
+            workspace,
+            ["trixie"],
+            ["main"],
+            ["binary-amd64"],
+        )
+    ]
+
+
+def test_init_metadata_requires_base_url(tmp_path):
+    workspace = os.path.join(str(tmp_path), "debian")
+    with pytest.raises(ValueError):
+        tools.init_metadata("", workspace="debian", metadata_dir=str(tmp_path))
+    assert not os.path.exists(os.path.join(workspace, "config.json"))
+
+
+def test_update_metadata_reuses_stored_config(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "_update_metadata", _noop_update)
+    workspace = os.path.join(str(tmp_path), "debian")
+    os.makedirs(workspace)
+    with open(os.path.join(workspace, "config.json"), "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "base_url": "http://example.org/debian/",
+                "ssl_verify": True,
+                "local_dir": [workspace],
+                "sysarch": "amd64",
+                "dist": ["trixie"],
+                "comp": ["main"],
+                "builds": ["binary-amd64"],
+            },
+            handle,
+        )
+
+    result = tools.update_metadata(
+        workspace="debian", metadata_dir=str(tmp_path), force=True
+    )
+    assert result["base_url"] == "http://example.org/debian/"
+    assert result["distributions"] == ["trixie"]
+    assert result["components"] == ["main"]
+    assert result["builds"] == ["binary-amd64"]
+
+
+def test_update_metadata_uninitialized_without_url_raises(tmp_path):
+    workspace = os.path.join(str(tmp_path), "debian")
+    with pytest.raises(ValueError) as excinfo:
+        tools.update_metadata(workspace="debian", metadata_dir=str(tmp_path))
+    assert "init_metadata" in str(excinfo.value)
+    assert not os.path.exists(os.path.join(workspace, "config.json"))
+
+
+def test_update_metadata_with_url_initializes_config(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "_update_metadata", _noop_update)
+    result = tools.update_metadata(
+        "http://example.org/debian/",
+        workspace="debian",
+        metadata_dir=str(tmp_path),
+        force=True,
+    )
+    workspace = os.path.join(str(tmp_path), "debian")
+    assert result["base_url"] == "http://example.org/debian/"
+    with open(os.path.join(workspace, "config.json"), encoding="utf-8") as handle:
+        assert json.load(handle)["base_url"] == "http://example.org/debian/"
+
+
+def test_update_metadata_rejects_conflicting_url(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "_update_metadata", _noop_update)
+    workspace = os.path.join(str(tmp_path), "debian")
+    os.makedirs(workspace)
+    stored = {
+        "base_url": "http://example.org/debian/",
+        "ssl_verify": True,
+        "local_dir": [workspace],
+        "sysarch": "amd64",
+        "comp": ["main"],
+        "builds": ["binary-amd64"],
+    }
+    with open(os.path.join(workspace, "config.json"), "w", encoding="utf-8") as handle:
+        json.dump(stored, handle)
+
+    with pytest.raises(ValueError):
+        tools.update_metadata(
+            "http://other.example.org/debian/",
+            workspace="debian",
+            metadata_dir=str(tmp_path),
+            force=True,
+        )
+
+    with open(os.path.join(workspace, "config.json"), encoding="utf-8") as handle:
+        assert json.load(handle) == stored
+
+
+def test_update_metadata_positional_base_url_still_works(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "_update_metadata", _noop_update)
+    result = tools.update_metadata(
+        "http://example.org/debian/", metadata_dir=str(tmp_path), force=True
+    )
+    assert result["base_url"] == "http://example.org/debian/"
+
 
 def _write_metadata_dir(base):
     target = os.path.join(base, "dists", "trixie", "main", "binary-amd64")

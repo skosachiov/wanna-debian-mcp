@@ -30,9 +30,21 @@ wanna-debian-mcp --metadata-dir ./metadata
 ```
 
 Defaults to `127.0.0.1:8000` (MCP endpoint `http://127.0.0.1:8000/mcp`).
-Tools: `list_distributions`, `update_metadata`, `search_packages`,
-`resolve_source`, `resolve_binaries`, `resolve_group`, `dependencies`,
-`reverse_dependencies`, `toposort`.
+Tools: `list_distributions`, `init_metadata`, `update_metadata`,
+`search_packages`, `resolve_source`, `resolve_binaries`, `resolve_group`,
+`dependencies`, `reverse_dependencies`, `toposort`.
+
+Container (Docker or podman): build the repo `Dockerfile` and run it. With
+podman:
+
+```
+podman build -t wanna-debian-mcp .
+podman run --privileged --rm -p 8000:8000 -v "$PWD/metadata:/data/metadata:Z" wanna-debian-mcp
+```
+
+`--privileged` is needed for build and metadata operations; see
+[docs/mcp/index.md](docs/mcp/index.md) for install-from-git and how to verify
+the MCP endpoint from the host.
 
 readme: [docs/mcp/index.md](docs/mcp/index.md)
 

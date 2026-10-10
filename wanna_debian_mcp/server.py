@@ -80,8 +80,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 INSTRUCTIONS = (
     "Local, no-authentication MCP server for Debian distribution analysis. "
-    "Use `update_metadata` to populate a metadata workspace, then "
-    "`search_packages` to find package versions by requirement. "
+    "Use `init_metadata` to create a named metadata workspace and pull its "
+    "metadata, and `update_metadata` to refresh an existing workspace (reusing "
+    "its stored base URL when none is supplied). Then use `search_packages` to "
+    "find package versions by requirement. "
     "`resolve_source`, `resolve_binaries` and `resolve_group` map between "
     "binary and source packages, and `dependencies`, `reverse_dependencies` "
     "and `toposort` analyse dependency graphs."
@@ -116,8 +118,9 @@ def create_app(metadata_dir: Optional[str] = None):
         return tools.list_distributions(base_url, no_check_certificate)
 
     @app.tool
-    def update_metadata(
+    def init_metadata(
         base_url: str,
+        workspace: str | None = None,
         metadata_dir: str | None = None,
         dist: list[str] | None = None,
         comp: list[str] | None = None,
@@ -126,21 +129,55 @@ def create_app(metadata_dir: Optional[str] = None):
         no_check_certificate: bool = False,
         force: bool = False,
     ) -> dict:
-        """Download and store Debian metadata for a repository base URL.
+        """Initialize a named metadata workspace and pull its metadata.
 
-        ``dist`` limits which distributions are fetched (default: all).
-        ``comp``/``build`` limit components and build types.  Set ``force`` to
-        refresh even when the local copy looks current.
+        ``workspace`` is a name under the metadata root (``"debian"`` maps to
+        ``<root>/debian``); an absolute path is used as-is.  Mirrors
+        ``distrotracker -u -D <workspace> -B <base_url>``.  ``dist`` limits
+        which distributions are fetched (default: all); ``comp``/``build``
+        limit components and build types.
+        """
+        return tools.init_metadata(
+            base_url=base_url,
+            workspace=workspace,
+            metadata_dir=metadata_dir or resolved_dir,
+            dist=dist,
+            comp=comp,
+            build=build,
+            sysarch=sysarch,
+            no_check_certificate=no_check_certificate,
+            force=force,
+        )
+
+    @app.tool
+    def update_metadata(
+        base_url: str | None = None,
+        workspace: str | None = None,
+        metadata_dir: str | None = None,
+        dist: list[str] | None = None,
+        comp: list[str] | None = None,
+        build: list[str] | None = None,
+        sysarch: str = "amd64",
+        no_check_certificate: bool = False,
+        force: bool = False,
+    ) -> dict:
+        """Refresh a metadata workspace from its stored configuration.
+
+        Omit ``base_url`` to reuse the workspace's stored base URL and filters
+        (set them first with ``init_metadata``).  A supplied ``base_url`` must
+        match the workspace's stored one.  ``dist``/``comp``/``build`` limit
+        the fetch; ``force`` refreshes even when the local copy looks current.
         """
         return tools.update_metadata(
-            base_url,
-            metadata_dir or resolved_dir,
-            dist,
-            comp,
-            build,
-            sysarch,
-            no_check_certificate,
-            force,
+            base_url=base_url,
+            workspace=workspace,
+            metadata_dir=metadata_dir or resolved_dir,
+            dist=dist,
+            comp=comp,
+            build=build,
+            sysarch=sysarch,
+            no_check_certificate=no_check_certificate,
+            force=force,
         )
 
     @app.tool

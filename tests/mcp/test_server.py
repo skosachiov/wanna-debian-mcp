@@ -14,6 +14,7 @@ SMALL_PACKAGES = str(DATA_DIR / "small_Packages")
 
 EXPECTED_TOOLS = {
     "list_distributions",
+    "init_metadata",
     "update_metadata",
     "search_packages",
     "resolve_source",

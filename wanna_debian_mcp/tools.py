@@ -62,6 +62,40 @@ def get_metadata_dir(metadata_dir: Optional[str] = None) -> str:
     return os.path.abspath(os.path.expanduser(candidate))
 
 
+def get_workspace_dir(
+    workspace: Optional[str] = None, metadata_dir: Optional[str] = None
+) -> str:
+    """Resolve a metadata workspace directory.
+
+    The server metadata root is ``metadata_dir``, else
+    ``$WANNA_DEBIAN_METADATA_DIR``, else ``./metadata``.  A relative
+    ``workspace`` name is joined under that root (``workspace="debian"`` maps
+    to ``<root>/debian``); an absolute ``workspace`` is used as-is.  With no
+    ``workspace`` the root itself is the workspace.
+    """
+    root = get_metadata_dir(metadata_dir)
+    if not workspace:
+        return root
+    expanded = os.path.expanduser(workspace)
+    if os.path.isabs(expanded):
+        return os.path.abspath(expanded)
+    return os.path.join(root, expanded)
+
+
+def _config_file(workspace_dir: str) -> str:
+    """Return the path of the workspace configuration file."""
+    return os.path.join(workspace_dir, _dt.config["config_file"])
+
+
+def _read_workspace_config(workspace_dir: str) -> Optional[Dict[str, Any]]:
+    """Read the workspace ``config.json``, or ``None`` when it is absent."""
+    path = _config_file(workspace_dir)
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
 def find_metadata_files(metadata_dir: str) -> List[str]:
     """Return the metadata index JSON files stored under ``metadata_dir``."""
     files: List[str] = []
@@ -135,21 +169,22 @@ def list_distributions(
     return {"base_url": base, "distributions": distributions}
 
 
-def update_metadata(
-    base_url: str,
-    metadata_dir: Optional[str] = None,
-    dist: Optional[Sequence[str]] = None,
-    comp: Optional[Sequence[str]] = None,
-    build: Optional[Sequence[str]] = None,
-    sysarch: str = "amd64",
-    no_check_certificate: bool = False,
-    force: bool = False,
+def _pull_into_workspace(
+    resolved_dir: str,
+    base: str,
+    dist: Optional[Sequence[str]],
+    comp: Optional[Sequence[str]],
+    build: Optional[Sequence[str]],
+    sysarch: str,
+    no_check_certificate: bool,
+    force: bool,
 ) -> Dict[str, Any]:
-    """Fetch and store Debian metadata for a repository base URL."""
-    init_apt()
-    base = _normalize_base_url(base_url)
-    resolved_dir = get_metadata_dir(metadata_dir)
-    os.makedirs(resolved_dir, exist_ok=True)
+    """Configure the distrotracker globals, pull metadata, and persist config.
+
+    Shared by :func:`init_metadata` and :func:`update_metadata` so both modes
+    use one refresh path.  Serialized with the process-wide ``_LOCK`` because
+    ``distrotracker.distrotracker.config`` is a module global.
+    """
     session = _new_session(not no_check_certificate)
     hashes: set = set()
 
@@ -170,7 +205,7 @@ def update_metadata(
         dists = list(dist) if dist else []
         cfg["timestamp"] = str(time.time())
 
-        config_file = os.path.join(resolved_dir, cfg["config_file"])
+        config_file = _config_file(resolved_dir)
         need_update = force or not os.path.exists(config_file)
         if not need_update:
             need_update = original_metadata_is_newer(base, resolved_dir, session, hashes)
@@ -190,6 +225,115 @@ def update_metadata(
         "components": components,
         "builds": builds,
     }
+
+
+def init_metadata(
+    base_url: str,
+    workspace: Optional[str] = None,
+    metadata_dir: Optional[str] = None,
+    dist: Optional[Sequence[str]] = None,
+    comp: Optional[Sequence[str]] = None,
+    build: Optional[Sequence[str]] = None,
+    sysarch: str = "amd64",
+    no_check_certificate: bool = False,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Initialize a named metadata workspace and perform its initial pull.
+
+    ``base_url`` is required.  The configuration (base URL, filters,
+    architecture and TLS setting) is persisted as ``config.json`` in the
+    resolved workspace directory, mirroring
+    ``distrotracker -u -D <workspace> -B <base_url>``.
+    """
+    init_apt()
+    if not base_url:
+        raise ValueError(
+            "base_url is required to initialize a metadata workspace"
+        )
+    base = _normalize_base_url(base_url)
+    resolved_dir = get_workspace_dir(workspace, metadata_dir)
+    stored = _read_workspace_config(resolved_dir)
+    if (
+        stored
+        and stored.get("base_url")
+        and _normalize_base_url(stored["base_url"]) != base
+    ):
+        raise ValueError(
+            f"workspace {resolved_dir!r} is already configured for base URL "
+            f"{stored['base_url']!r}; refusing to initialize it from {base!r}. "
+            "Use update_metadata to refresh an existing workspace."
+        )
+    os.makedirs(resolved_dir, exist_ok=True)
+    result = _pull_into_workspace(
+        resolved_dir, base, dist, comp, build, sysarch, no_check_certificate, force
+    )
+    result["workspace"] = workspace
+    return result
+
+
+def update_metadata(
+    base_url: Optional[str] = None,
+    workspace: Optional[str] = None,
+    metadata_dir: Optional[str] = None,
+    dist: Optional[Sequence[str]] = None,
+    comp: Optional[Sequence[str]] = None,
+    build: Optional[Sequence[str]] = None,
+    sysarch: str = "amd64",
+    no_check_certificate: bool = False,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Refresh a Debian metadata workspace.
+
+    When ``base_url`` is omitted the workspace's stored ``config.json`` supplies
+    the base URL and filters.  A supplied ``base_url`` for an already
+    initialized workspace must match the stored one; a workspace with no stored
+    configuration and no ``base_url`` is an error (initialize it with
+    :func:`init_metadata` first).
+    """
+    init_apt()
+    resolved_dir = get_workspace_dir(workspace, metadata_dir)
+    stored = _read_workspace_config(resolved_dir)
+
+    if base_url:
+        base = _normalize_base_url(base_url)
+        if (
+            stored
+            and stored.get("base_url")
+            and _normalize_base_url(stored["base_url"]) != base
+        ):
+            raise ValueError(
+                f"workspace {resolved_dir!r} is configured for base URL "
+                f"{stored['base_url']!r}; refusing to update it from {base!r}"
+            )
+    elif stored and stored.get("base_url"):
+        base = _normalize_base_url(stored["base_url"])
+    else:
+        raise ValueError(
+            f"workspace {resolved_dir!r} has no stored configuration; initialize "
+            "it first with init_metadata(base_url=..., workspace=...) or supply "
+            "a base_url"
+        )
+
+    if stored:
+        if dist is None:
+            dist = stored.get("dist")
+        if comp is None:
+            comp = stored.get("comp")
+        if build is None:
+            build = stored.get("builds")
+        if sysarch == "amd64" and stored.get("sysarch"):
+            sysarch = stored["sysarch"]
+        if base_url is None:
+            no_check_certificate = not stored.get(
+                "ssl_verify", not no_check_certificate
+            )
+
+    os.makedirs(resolved_dir, exist_ok=True)
+    result = _pull_into_workspace(
+        resolved_dir, base, dist, comp, build, sysarch, no_check_certificate, force
+    )
+    result["workspace"] = workspace
+    return result
 
 
 def search_packages(
