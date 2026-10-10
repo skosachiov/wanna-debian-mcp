@@ -1,0 +1,45 @@
+Package: alpha
+Source: alpha-src
+Version: 1.0
+Architecture: amd64
+Depends: beta
+Description: alpha package
+Section: utils
+Priority: optional
+Filename: pool/a/alpha/alpha_1.0_amd64.deb
+Size: 1
+MD5sum: 00000000000000000000000000000000
+
+Package: alpha-dev
+Source: alpha-src
+Version: 1.0
+Architecture: amd64
+Depends: gamma
+Description: alpha development files
+Section: libdevel
+Priority: optional
+Filename: pool/a/alpha/alpha-dev_1.0_amd64.deb
+Size: 1
+MD5sum: 00000000000000000000000000000000
+
+Package: beta
+Source: beta-src
+Version: 1.0
+Architecture: amd64
+Description: beta package
+Section: utils
+Priority: optional
+Filename: pool/b/beta/beta_1.0_amd64.deb
+Size: 1
+MD5sum: 00000000000000000000000000000000
+
+Package: gamma
+Source: gamma-src
+Version: 1.0
+Architecture: amd64
+Description: gamma package
+Section: utils
+Priority: optional
+Filename: pool/g/gamma/gamma_1.0_amd64.deb
+Size: 1
+MD5sum: 00000000000000000000000000000000

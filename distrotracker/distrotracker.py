@@ -182,7 +182,14 @@ def check_version(version, required_op, required_version):
     else:
         return False
 
-def find_versions(fin, filenames, dist = None, comp = None, build = None, arch = None, briefly = None, index_key = 'package', selection = None, grep_pattern = None):
+def collect_versions(fin, filenames, dist = None, comp = None, build = None, arch = None, briefly = None, index_key = 'package', selection = None, grep_pattern = None):
+    """Return package records matching the given requirement lines.
+
+    This is the reusable, non-printing core of :func:`find_versions`.  It
+    returns a list of package-record dictionaries (the same dictionaries
+    ``find_versions`` serializes to JSON).  A missing or unreadable metadata
+    file raises so callers can surface the error.
+    """
 
     version_key = "source_version" if index_key == "source" else "version"
 
@@ -190,7 +197,7 @@ def find_versions(fin, filenames, dist = None, comp = None, build = None, arch =
     for filename in filenames:
         if not os.path.exists(filename):
             logging.error(f"File does not exist: {filename}")
-            return {}
+            raise FileNotFoundError(filename)
         try:
             with open(filename, 'r', encoding='utf-8') as f:
                 data_list = json.load(f)
@@ -205,7 +212,7 @@ def find_versions(fin, filenames, dist = None, comp = None, build = None, arch =
                     data_dict[e[index_key]].append(e)
         except (IOError, json.JSONDecodeError) as e:
             logging.error(f"Error reading file: {e}")
-            return {}
+            raise
     logging.debug(f"Dictionary successfully read from: {filenames}")
     for key in data_dict:
         data_dict[key].sort(key=cmp_to_key(lambda a, b: apt_pkg.version_compare(a[version_key], b[version_key])))
@@ -238,18 +245,27 @@ def find_versions(fin, filenames, dist = None, comp = None, build = None, arch =
             if selection == "earliest": v = p_items[0][version_key]
         if v is not None: p_items = [p for p in p_items if p.get(version_key) == v]
 
-        s_items = []
         for p in p_items:
-            item_str = json.dumps({k: v for k, v in p.items() if k in briefly_keys} if briefly else p)
-            s_items.append(f'  {item_str}')
-        items.extend(s_items)
+            items.append({k: v for k, v in p.items() if k in briefly_keys} if briefly else p)
 
     if grep_pattern:
         grep_regex = re.compile(grep_pattern)
-        items = [item for item in items if grep_regex.search(item)]
+        items = [item for item in items if grep_regex.search(f'  {json.dumps(item)}')]
+
+    return items
+
+
+def find_versions(fin, filenames, dist = None, comp = None, build = None, arch = None, briefly = None, index_key = 'package', selection = None, grep_pattern = None):
+
+    try:
+        items = collect_versions(fin, filenames, dist, comp, build, arch, briefly, index_key, selection, grep_pattern)
+    except (FileNotFoundError, IOError, json.JSONDecodeError):
+        return {}
+
+    s_items = [f'  {json.dumps(item)}' for item in items]
 
     print("[")
-    print(',\n'.join(items))
+    print(',\n'.join(s_items))
     print("]")
 
 def extract_hashes(filename, hashes):

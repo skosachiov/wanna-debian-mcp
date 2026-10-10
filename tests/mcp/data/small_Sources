@@ -1,0 +1,25 @@
+Package: app
+Binary: app
+Version: 1.0
+Build-Depends: liba
+Architecture: any
+Format: 3.0 (quilt)
+Files:
+ 00000000000000000000000000000000 1 app_1.0.dsc
+
+Package: liba
+Binary: liba
+Version: 1.0
+Build-Depends: libb
+Architecture: any
+Format: 3.0 (quilt)
+Files:
+ 00000000000000000000000000000000 1 liba_1.0.dsc
+
+Package: libb
+Binary: libb
+Version: 1.0
+Architecture: any
+Format: 3.0 (quilt)
+Files:
+ 00000000000000000000000000000000 1 libb_1.0.dsc

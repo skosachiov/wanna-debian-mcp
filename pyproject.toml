@@ -15,6 +15,7 @@ requires-python = ">=3.8"
 dependencies = [
     "requests>=2.25.0",
 ]
+
 classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "License :: OSI Approved :: BSD License",
@@ -30,6 +31,13 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 
+[project.optional-dependencies]
+# MCP server support.  FastMCP requires Python >= 3.10, so it is optional:
+# the core library keeps working on older interpreters.
+mcp = [
+    "fastmcp>=2.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/skosachiov/wanna-debian"
 Repository = "https://github.com/skosachiov/wanna-debian"
@@ -41,6 +49,7 @@ pre-dose = "predose.predose:main"
 distrotracker = "distrotracker.distrotracker:main"
 deblibdiff = "distrotracker.deblibdiff:main"
 simplebuilder = "simplebuilder.simplebuilder:main"
+wanna-debian-mcp = "wanna_debian_mcp.server:main"
 
 [tool.setuptools]
 include-package-data = true
@@ -49,6 +58,7 @@ packages = [
     "distrotracker",
     "toposort",
     "simplebuilder",
+    "wanna_debian_mcp",
 ]
 
 [tool.setuptools.package-data]

@@ -1,0 +1,90 @@
+Metadata-Version: 2.4
+Name: wanna-debian
+Version: 0.2.81
+Summary: Debian package management utilities
+Author-email: Serge Kosachiov <skosachiov@gmail.com>
+License: GPL-3.0-only OR BSD-3-Clause
+Project-URL: Homepage, https://github.com/skosachiov/wanna-debian
+Project-URL: Repository, https://github.com/skosachiov/wanna-debian
+Project-URL: Bug Tracker, https://github.com/skosachiov/wanna-debian/issues
+Classifier: License :: OSI Approved :: GNU General Public License v3 (GPLv3)
+Classifier: License :: OSI Approved :: BSD License
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: System Administrators
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: 3.14
+Classifier: Topic :: System :: Archiving :: Packaging
+Classifier: Topic :: System :: Systems Administration
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: requests>=2.25.0
+Provides-Extra: mcp
+Requires-Dist: fastmcp>=2.0; extra == "mcp"
+Dynamic: license-file
+
+# wanna-debian
+
+## predose
+
+Pre-dose is a small set of Python and Bash scripts designed for analyzing and backporting Debian packages from
+newer releases (e.g., Sid) to older stable versions (e.g., Trixie or Bookworm).
+
+readme: [docs/predose/index.md](docs/predose/index.md)
+
+## distrotracker
+
+Distribution package tracking and dependency resolution tool for Debian. Distrotracker helps track packages across Debian distributions and find minimum versions that satisfy dependencies. It's particularly useful for backporting and dependency resolution.
+
+readme: [docs/distrotracker/index.md](docs/distrotracker/index.md)
+
+## simplebuilder
+
+The Simple Debian package builder handles different source types based on URL patterns provided. The build task is received via stdin. Each line of the task is a link to a Debian package or its source code. After building or downloading each package, the artifacts are placed in a local repository and connected to the build environment, thus satisfying build dependencies for packages from subsequent lines. If a package version is already available in the connected repositories, a bin-nmu rebuild is automatically triggered.
+
+readme: [docs/simplebuilder/index.md](docs/simplebuilder/index.md)
+
+## apt deps
+
+```
+sudo apt install -y python3-pip python3-apt python3-requests python3-certifi python3-debian \
+    sbuild devscripts git-buildpackage jq sudo mount \
+    dose-distcheck dose-builddebcheck
+```
+
+## rootless userspace install from git
+
+`pip install --user --break-system-packages git+https://.../wanna-debian.git`
+
+or
+
+`pip install --user --break-system-packages git+ssh://git@.../wanna-debian.git`
+
+github repo example
+
+`pip install --user --break-system-packages git+https://github.com/skosachiov/wanna-debian.git`
+
+```
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+## upgrade all git pip packages
+
+`pip inspect | jq '.installed[].direct_url.url? // empty' | xargs -I {} pip install --upgrade --user --break-system-packages git+{}`
+
+## uninstall
+
+`pip uninstall -y --break-system-packages wanna-debian`
+
+## python venv install
+
+```
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+pip install git+https://github.com/skosachiov/wanna-debian.git
+```

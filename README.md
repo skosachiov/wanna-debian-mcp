@@ -19,6 +19,23 @@ The Simple Debian package builder handles different source types based on URL pa
 
 readme: [docs/simplebuilder/index.md](docs/simplebuilder/index.md)
 
+## MCP server (local, no auth)
+
+A local, no-authentication MCP server exposes the distrotracker and pre-dose
+analysis as MCP tools over HTTP:
+
+```
+pip install --user --break-system-packages 'wanna-debian[mcp]'
+wanna-debian-mcp --metadata-dir ./metadata
+```
+
+Defaults to `127.0.0.1:8000` (MCP endpoint `http://127.0.0.1:8000/mcp`).
+Tools: `list_distributions`, `update_metadata`, `search_packages`,
+`resolve_source`, `resolve_binaries`, `resolve_group`, `dependencies`,
+`reverse_dependencies`, `toposort`.
+
+readme: [docs/mcp/index.md](docs/mcp/index.md)
+
 ## apt deps
 
 ```
