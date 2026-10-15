@@ -84,6 +84,15 @@ Example, initializing a workspace named `debian`:
 init_metadata(base_url="http://ftp.debian.org/debian/", workspace="debian")
 ```
 
+Each workspace is tied to one base URL and stores its own `dist` / `comp` /
+`build` filters in its `config.json`. Those filters are resolved independently
+per workspace: a workspace created without filters uses the tool defaults, never
+values carried over from another workspace. This keeps repositories whose names
+are not Debian's (for example an Ubuntu mirror with `noble` and `universe`)
+separate from a Debian workspace. A workspace whose `config.json` already holds
+filters leaked by an earlier release must be re-initialized (or its directory
+removed) once, because a stored value is that workspace's own contract.
+
 ### `update_metadata`
 
 Refresh a metadata workspace, reusing its stored `config.json` when no base URL

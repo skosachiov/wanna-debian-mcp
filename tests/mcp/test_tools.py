@@ -192,6 +192,208 @@ def test_update_metadata_positional_base_url_still_works(monkeypatch, tmp_path):
     assert result["base_url"] == "http://example.org/debian/"
 
 
+# ---------------------------------------------------------------------------
+# Per-workspace configuration isolation
+# ---------------------------------------------------------------------------
+
+def test_default_filters_are_snapshotted_not_live():
+    """The baseline must be an import-time snapshot, not an alias of the live config."""
+    assert tools._DEFAULT_DIST is not tools._dt.config["dist"]
+    assert tools._DEFAULT_COMP is not tools._dt.config["comp"]
+    assert tools._DEFAULT_BUILDS is not tools._dt.config["builds"]
+
+    before = (
+        list(tools._DEFAULT_DIST),
+        list(tools._DEFAULT_COMP),
+        list(tools._DEFAULT_BUILDS),
+    )
+    live = tools._dt.config
+    for key in ("dist", "comp", "builds"):
+        live[key].append("__mutation_probe__")
+    try:
+        assert list(tools._DEFAULT_DIST) == before[0]
+        assert list(tools._DEFAULT_COMP) == before[1]
+        assert list(tools._DEFAULT_BUILDS) == before[2]
+    finally:
+        for key in ("dist", "comp", "builds"):
+            while "__mutation_probe__" in live[key]:
+                live[key].remove("__mutation_probe__")
+
+
+def test_workspace_does_not_inherit_another_workspaces_filters(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "_update_metadata", _noop_update)
+    tools.init_metadata(
+        "http://ftp.debian.org/debian/",
+        workspace="debian",
+        metadata_dir=str(tmp_path),
+        dist=["trixie"],
+        comp=["main", "non-free"],
+        build=["binary-arm64"],
+        force=True,
+    )
+    tools.init_metadata(
+        "http://archive.ubuntu.com/ubuntu/",
+        workspace="ubuntu",
+        metadata_dir=str(tmp_path),
+        force=True,
+    )
+
+    with open(
+        os.path.join(str(tmp_path), "ubuntu", "config.json"), encoding="utf-8"
+    ) as handle:
+        config = json.load(handle)
+
+    assert config["dist"] == tools._DEFAULT_DIST
+    assert config["comp"] == tools._DEFAULT_COMP
+    assert config["builds"] == tools._DEFAULT_BUILDS
+    assert "trixie" not in config["dist"]
+    assert "binary-arm64" not in config["builds"]
+    assert config["comp"] != ["main", "non-free"]
+
+
+def test_update_metadata_uses_stored_filters_not_the_global(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "_update_metadata", _noop_update)
+    workspace = os.path.join(str(tmp_path), "debian")
+    os.makedirs(workspace)
+    stored = {
+        "base_url": "http://example.org/debian/",
+        "ssl_verify": True,
+        "local_dir": [workspace],
+        "sysarch": "amd64",
+        "dist": ["trixie"],
+        "comp": ["main"],
+        "builds": ["binary-amd64"],
+    }
+    with open(os.path.join(workspace, "config.json"), "w", encoding="utf-8") as handle:
+        json.dump(stored, handle)
+
+    monkeypatch.setattr(
+        tools._dt,
+        "config",
+        {
+            **tools._dt.config,
+            "dist": ["universe"],
+            "comp": ["universe"],
+            "builds": ["binary-arm64"],
+            "sysarch": "arm64",
+        },
+    )
+
+    result = tools.update_metadata(
+        workspace="debian", metadata_dir=str(tmp_path), force=True
+    )
+
+    assert result["base_url"] == "http://example.org/debian/"
+    assert result["distributions"] == ["trixie"]
+    assert result["components"] == ["main"]
+    assert result["builds"] == ["binary-amd64"]
+    with open(os.path.join(workspace, "config.json"), encoding="utf-8") as handle:
+        config = json.load(handle)
+    assert config["dist"] == ["trixie"]
+    assert config["comp"] == ["main"]
+    assert config["builds"] == ["binary-amd64"]
+
+
+def test_update_metadata_missing_stored_filters_fall_back_to_defaults(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "_update_metadata", _noop_update)
+    workspace = os.path.join(str(tmp_path), "debian")
+    os.makedirs(workspace)
+    with open(os.path.join(workspace, "config.json"), "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "base_url": "http://example.org/debian/",
+                "ssl_verify": True,
+                "local_dir": [workspace],
+                "sysarch": "amd64",
+            },
+            handle,
+        )
+
+    result = tools.update_metadata(
+        workspace="debian", metadata_dir=str(tmp_path), force=True
+    )
+
+    assert result["distributions"] is None
+    assert result["components"] == tools._DEFAULT_COMP
+    assert result["builds"] == tools._DEFAULT_BUILDS
+
+
+def test_non_debian_workspace_has_no_debian_names(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "_update_metadata", _noop_update)
+    tools.init_metadata(
+        "http://ftp.debian.org/debian/",
+        workspace="debian",
+        metadata_dir=str(tmp_path),
+        dist=["trixie"],
+        force=True,
+    )
+    tools.init_metadata(
+        "http://archive.ubuntu.com/ubuntu/",
+        workspace="ubuntu",
+        metadata_dir=str(tmp_path),
+        force=True,
+    )
+
+    with open(
+        os.path.join(str(tmp_path), "ubuntu", "config.json"), encoding="utf-8"
+    ) as handle:
+        ubuntu = json.load(handle)
+    with open(
+        os.path.join(str(tmp_path), "debian", "config.json"), encoding="utf-8"
+    ) as handle:
+        debian = json.load(handle)
+
+    assert not ({"trixie", "bookworm", "sid"} & set(ubuntu["dist"]))
+    assert ubuntu["base_url"] == "http://archive.ubuntu.com/ubuntu/"
+    assert debian["dist"] == ["trixie"]
+    assert debian["base_url"] == "http://ftp.debian.org/debian/"
+
+
+def test_init_metadata_rejects_conflicting_base_url(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "_update_metadata", _noop_update)
+    tools.init_metadata(
+        "http://ftp.debian.org/debian/",
+        workspace="debian",
+        metadata_dir=str(tmp_path),
+        force=True,
+    )
+    with pytest.raises(ValueError):
+        tools.init_metadata(
+            "http://archive.ubuntu.com/ubuntu/",
+            workspace="debian",
+            metadata_dir=str(tmp_path),
+            force=True,
+        )
+
+
+def test_update_reads_only_its_own_stored_config(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "_update_metadata", _noop_update)
+    tools.init_metadata(
+        "http://ftp.debian.org/debian/",
+        workspace="debian",
+        metadata_dir=str(tmp_path),
+        dist=["trixie"],
+        force=True,
+    )
+    tools.init_metadata(
+        "http://archive.ubuntu.com/ubuntu/",
+        workspace="ubuntu",
+        metadata_dir=str(tmp_path),
+        force=True,
+    )
+
+    result = tools.update_metadata(
+        workspace="ubuntu", metadata_dir=str(tmp_path), force=True
+    )
+    assert result["base_url"] == "http://archive.ubuntu.com/ubuntu/"
+
+    with open(
+        os.path.join(str(tmp_path), "debian", "config.json"), encoding="utf-8"
+    ) as handle:
+        debian = json.load(handle)
+    assert debian["dist"] == ["trixie"]
+
+
 def _write_metadata_dir(base):
     target = os.path.join(base, "dists", "trixie", "main", "binary-amd64")
     os.makedirs(target, exist_ok=True)

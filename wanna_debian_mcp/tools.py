@@ -38,6 +38,15 @@ ENV_METADATA_DIR = "WANNA_DEBIAN_METADATA_DIR"
 
 _LOCK = threading.RLock()
 
+# Repository-independent baseline for the per-workspace filters, captured from
+# ``distrotracker`` before any tool call can mutate its module-global config.
+# A workspace that omits a filter resolves to these defaults instead of another
+# workspace's persisted values.
+_DEFAULT_DIST: List[str] = list(_dt.config["dist"])
+_DEFAULT_COMP: List[str] = list(_dt.config["comp"])
+_DEFAULT_BUILDS: List[str] = list(_dt.config["builds"])
+_DEFAULT_SYSARCH: str = _dt.config["sysarch"]
+
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -190,19 +199,23 @@ def _pull_into_workspace(
 
     with _LOCK:
         cfg = _dt.config
+        # Resolve every filter from the explicit argument or the
+        # repository-independent baseline, then assign all of them
+        # unconditionally so the workspace never inherits another workspace's
+        # persisted values.
+        resolved_dist = list(dist) if dist else list(_DEFAULT_DIST)
+        resolved_comp = list(comp) if comp else list(_DEFAULT_COMP)
+        resolved_builds = list(build) if build else list(_DEFAULT_BUILDS)
         cfg["base_url"] = base
         cfg["ssl_verify"] = not no_check_certificate
         cfg["local_dir"] = [resolved_dir]
-        cfg["sysarch"] = sysarch
-        if dist:
-            cfg["dist"] = list(dist)
-        if comp:
-            cfg["comp"] = list(comp)
-        if build:
-            cfg["builds"] = list(build)
-        components = list(comp) if comp else list(cfg["comp"])
-        builds = list(build) if build else list(cfg["builds"])
-        dists = list(dist) if dist else []
+        cfg["sysarch"] = sysarch or _DEFAULT_SYSARCH
+        cfg["dist"] = resolved_dist
+        cfg["comp"] = resolved_comp
+        cfg["builds"] = resolved_builds
+        components = resolved_comp
+        builds = resolved_builds
+        dists = resolved_dist
         cfg["timestamp"] = str(time.time())
 
         config_file = _config_file(resolved_dir)
